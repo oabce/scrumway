@@ -85,6 +85,8 @@ let sessionHeartbeat = null;
 let currentSessionID = generateUUID();
 let elements = {};
 let editModal;
+let impedimentReasonModal;
+let pendingImpedimentTaskId = null;
 let systemUsers = [];
 let burndownResizeTimer = null;
 
@@ -327,6 +329,17 @@ async function init() {
   };
   const modalEl = document.getElementById('editTaskModal');
   if (modalEl) editModal = new bootstrap.Modal(modalEl);
+  const impedimentReasonModalEl = document.getElementById('impedimentReasonModal');
+  if (impedimentReasonModalEl) {
+    impedimentReasonModal = new bootstrap.Modal(impedimentReasonModalEl);
+    impedimentReasonModalEl.addEventListener('hidden.bs.modal', () => {
+      if (!pendingImpedimentTaskId) return;
+      pendingImpedimentTaskId = null;
+      renderBoard();
+    });
+  }
+  const impedimentReasonForm = document.getElementById('impedimentReasonForm');
+  if (impedimentReasonForm) impedimentReasonForm.onsubmit = handleSaveImpedimentReason;
   if (document.getElementById('loginForm')) document.getElementById('loginForm').onsubmit = handleLogin;
   if (document.getElementById('registerForm')) document.getElementById('registerForm').onsubmit = handleRegister;
   if (document.getElementById('addMemberForm')) document.getElementById('addMemberForm').onsubmit = handleAddMember;
@@ -698,23 +711,36 @@ window.updateDod = (id, val) => {
 function renderImpediments() {
   if (!elements.impedimentsContainer) return;
   const list = state.impediments[state.currentUser] || [];
-  elements.impedimentsContainer.innerHTML = list.map(imp => `
-    <div class="card task-card shadow-sm p-3 position-relative" style="border-left: 4px solid #ef4444; margin-bottom: 10px;">
-      <div class="dropdown position-absolute" style="top:5px; right:5px;">
-        <button class="btn btn-link btn-sm p-0 text-muted text-decoration-none" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="font-size: 1.2rem; line-height: 1;">
-          ⋮
-        </button>
-        <ul class="dropdown-menu dropdown-menu-end shadow border-0" style="font-size: 0.8rem; min-width: 100px;">
-          <li><button class="dropdown-item py-2 text-danger" onclick="handleDeleteImpediment('${imp.id}')">❌ Excluir</button></li>
-        </ul>
-      </div>
-      <div class="fw-bold mb-0 pe-4" 
-           contenteditable="true" 
-           oninput="updateImpediment('${imp.id}', this.innerText)" 
-           placeholder="Descreva o impedimento..." 
-           style="min-height: 60px; font-size: 0.95rem; line-height: 1.4; outline: none; cursor: text; white-space: pre-wrap;">${escapeHtml(imp.text)}</div>
+  elements.impedimentsContainer.innerHTML = list.map((imp, idx) => impedimentCard(imp, idx)).join('');
+}
+
+function impedimentCard(imp, priorityIndex = 0) {
+  const task = imp.task || {
+    id: imp.id,
+    description: imp.text || 'Impedimento sem card vinculado',
+    assignee: 'Não atribuído',
+    priority: '0'
+  };
+  const color = getUserColor(task.assignee);
+  const reason = imp.text || 'Sem motivo informado';
+
+  return `<div class="card task-card impediment-card shadow-sm p-3 position-relative" draggable="true" data-impediment-id="${imp.id}" style="border-left: 4px solid ${color}">
+    <div class="dropdown position-absolute" style="top:5px; right:5px;">
+      <button class="btn btn-link btn-sm p-0 text-muted text-decoration-none" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="font-size: 1.2rem; line-height: 1;">
+        ⋮
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end shadow border-0" style="font-size: 0.8rem; min-width: 100px;">
+        <li><button class="dropdown-item py-2 text-danger" onclick="handleDeleteImpediment('${imp.id}')">❌ Excluir</button></li>
+      </ul>
     </div>
-  `).join('');
+    <div class="fw-bold mb-3 pe-4" style="font-size: 0.95rem; line-height: 1.4;">${escapeHtml(task.description || 'Card sem descrição')}</div>
+    <div class="d-flex gap-2 mb-1 align-items-center pe-4">
+      <span class="badge" style="background:${color}; color:#fff;">👤 ${escapeHtml(task.assignee || 'Não atribuído')}</span>
+      <span class="badge badge-priority">🔥 ${escapeHtml(task.priority || '0')}</span>
+      <span class="badge" style="background: #f1f5f9; color: #475569; font-weight: 700;">📌 P${priorityIndex}</span>
+    </div>
+    <button type="button" class="impediment-reason-btn" title="${escapeHtml(reason)}" aria-label="Motivo do impedimento: ${escapeHtml(reason)}">!</button>
+  </div>`;
 }
 
 window.handleAddImpediment = async () => {
@@ -1117,12 +1143,22 @@ window.deleteMember = async n => { };
 window.deleteTask = async id => { state.tasks = state.tasks.filter(t => t.id !== id); await saveState(); renderBoard(); };
 
 function enableDragAndDrop() {
-  document.querySelectorAll('.task-list .task-card').forEach(c => {
+  document.querySelectorAll('.task-list .task-card, .impediment-card').forEach(c => {
     c.ondragstart = e => {
-      e.dataTransfer.setData('text', c.dataset.taskId);
+      e.dataTransfer.effectAllowed = 'move';
+      if (c.dataset.taskId) {
+        e.dataTransfer.setData('text/plain', c.dataset.taskId);
+        e.dataTransfer.setData('text', c.dataset.taskId);
+      }
+      if (c.dataset.impedimentId) {
+        e.dataTransfer.setData('application/x-scrumway-impediment', c.dataset.impedimentId);
+      }
       c.classList.add('dragging');
     };
-    c.ondragend = () => c.classList.remove('dragging');
+    c.ondragend = () => {
+      c.classList.remove('dragging');
+      document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    };
   });
 
   document.querySelectorAll('.task-list').forEach(l => {
@@ -1147,7 +1183,13 @@ function enableDragAndDrop() {
     l.ondrop = async e => {
       e.preventDefault();
       l.classList.remove('drag-over');
-      const taskId = e.dataTransfer.getData('text');
+      const impedimentId = getDraggedImpedimentId(e);
+      if (impedimentId) {
+        await restoreImpedimentToTask(impedimentId, l.dataset.column);
+        return;
+      }
+
+      const taskId = getDraggedTaskId(e);
       const t = state.tasks.find(t => t.id === taskId);
       if (!t) return;
 
@@ -1171,34 +1213,125 @@ function enableDragAndDrop() {
   });
 
   const impedimentsArea = document.getElementById('impedimentsContainer');
-  if (impedimentsArea) {
-    impedimentsArea.ondragover = e => {
-      e.preventDefault();
-      impedimentsArea.classList.add('drag-over');
+  const impedimentsDropZone = document.querySelector('.footer-item.impediments');
+  if (impedimentsArea && impedimentsDropZone) {
+    const setImpedimentsDragState = active => {
+      impedimentsDropZone.classList.toggle('drag-over', active);
+      impedimentsArea.classList.toggle('drag-over', active);
     };
 
-    impedimentsArea.ondragleave = (e) => {
-      if (!impedimentsArea.contains(e.relatedTarget)) impedimentsArea.classList.remove('drag-over');
+    const handleImpedimentsDragOver = e => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      setImpedimentsDragState(true);
     };
 
-    impedimentsArea.ondrop = async e => {
+    const handleImpedimentsDragLeave = e => {
+      if (!impedimentsDropZone.contains(e.relatedTarget)) setImpedimentsDragState(false);
+    };
+
+    const handleImpedimentsDrop = async e => {
       e.preventDefault();
-      impedimentsArea.classList.remove('drag-over');
-      const taskId = e.dataTransfer.getData('text');
+      e.stopPropagation();
+      setImpedimentsDragState(false);
+      if (getDraggedImpedimentId(e)) return;
+
+      const taskId = getDraggedTaskId(e);
       const t = state.tasks.find(task => task.id === taskId);
       if (!t) return;
 
-      if (!state.impediments[state.currentUser]) state.impediments[state.currentUser] = [];
-      state.impediments[state.currentUser].push({
-        id: generateUUID(),
-        text: t.description || t.title || 'Impedimento criado a partir da tarefa'
-      });
-
-      state.tasks = state.tasks.filter(task => task.id !== taskId);
-      await saveState();
-      renderBoard();
+      openImpedimentReasonModal(t);
     };
+
+    [impedimentsDropZone, impedimentsArea].forEach(target => {
+      target.ondragover = handleImpedimentsDragOver;
+      target.ondragleave = handleImpedimentsDragLeave;
+      target.ondrop = handleImpedimentsDrop;
+    });
   }
+}
+
+function getDraggedTaskId(e) {
+  return e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+}
+
+function getDraggedImpedimentId(e) {
+  return e.dataTransfer.getData('application/x-scrumway-impediment');
+}
+
+function openImpedimentReasonModal(task) {
+  pendingImpedimentTaskId = task.id;
+  const taskIdInput = document.getElementById('impedimentTaskId');
+  const taskPreview = document.getElementById('impedimentTaskPreview');
+  const reasonInput = document.getElementById('impedimentReasonText');
+
+  if (!taskIdInput || !taskPreview || !reasonInput || !impedimentReasonModal) {
+    createImpedimentFromTask(task.id, 'Impedimento criado a partir da tarefa');
+    return;
+  }
+
+  taskIdInput.value = task.id;
+  taskPreview.textContent = task.description || task.title || 'Card sem descrição';
+  reasonInput.value = '';
+  impedimentReasonModal.show();
+  setTimeout(() => reasonInput.focus(), 150);
+}
+
+async function handleSaveImpedimentReason(e) {
+  e.preventDefault();
+  const taskId = document.getElementById('impedimentTaskId').value;
+  const reason = document.getElementById('impedimentReasonText').value.trim();
+  if (!taskId || !reason) return;
+
+  pendingImpedimentTaskId = null;
+  await createImpedimentFromTask(taskId, reason);
+  if (impedimentReasonModal) impedimentReasonModal.hide();
+}
+
+async function createImpedimentFromTask(taskId, reason) {
+  const task = state.tasks.find(task => task.id === taskId);
+  if (!task) return;
+
+  if (!state.impediments[state.currentUser]) state.impediments[state.currentUser] = [];
+  state.impediments[state.currentUser].push({
+    id: generateUUID(),
+    text: reason,
+    task: { ...task }
+  });
+
+  state.tasks = state.tasks.filter(task => task.id !== taskId);
+  await saveState();
+  renderBoard();
+}
+
+async function restoreImpedimentToTask(impedimentId, column) {
+  const impediments = state.impediments[state.currentUser] || [];
+  const impediment = impediments.find(item => item.id === impedimentId);
+  if (!impediment) return;
+
+  const restoredTask = impediment.task
+    ? { ...impediment.task }
+    : {
+        id: generateUUID(),
+        owner: state.currentUser,
+        title: '',
+        description: impediment.text || '',
+        priority: '0',
+        assignee: 'Não atribuído',
+        createdAt: new Date().toISOString()
+      };
+
+  restoredTask.column = column;
+  restoredTask.owner = state.currentUser;
+  restoredTask.order = state.tasks.filter(task => task.owner === state.currentUser && task.column === column).length;
+  if (column === 'done') restoredTask.completedAt = new Date().toISOString();
+  else delete restoredTask.completedAt;
+
+  state.tasks.push(restoredTask);
+  state.impediments[state.currentUser] = impediments.filter(item => item.id !== impedimentId);
+  await saveState();
+  renderBoard();
 }
 
 function getDragAfterElement(container, y) {
