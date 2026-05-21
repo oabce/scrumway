@@ -1,99 +1,91 @@
-# ScrumWay Web
+# ScrumWay - Gestão Ágil Profissional (v2.1)
 
-Projeto convertido para uma aplicação web estática em **HTML/CSS/JavaScript** pronta para rodar no **GitHub Pages**.
+ScrumWay é uma aplicação de quadro SCRUM moderna, segura e escalável, projetada para equipes que buscam simplicidade com robustez.
 
-## Versão recomendada
+## 🚀 Funcionalidades Principais
 
-O aplicativo web estático está em `docs/index.html` e funciona totalmente no navegador usando `localStorage`.
+- **Arquitetura Organizada**: Backend e Frontend separados para melhor manutenção.
+- **Autenticação Segura**: Utiliza **JWT (JSON Web Tokens)** para sessões seguras e expiráveis.
+- **Banco de Dados Relacional**: Persistência de usuários e perfis via **MySQL/MariaDB**.
+- **Gestão de Perfis**: Suporte a perfis **Team**, **PO**, **SM** e **Admin**.
+- **Segurança Avançada**:
+    - Senhas com Hashing seguro (PBKDF2).
+    - Troca obrigatória de senha padrão.
+    - Proteção contra ataques XSS e CSRF.
+    - Variáveis de ambiente para segredos sensíveis.
 
-### Recursos
+---
 
-- Login / cadastro / recuperação de senha
-- Quadro SCRUM com colunas: STORIES, A FAZER, EM PROCESSO, REALIZADAS
-- Criação, edição, exclusão e movimentação de tarefas
-- Responsável e complexidade ajustáveis
-- Notas por usuário
-- Tema claro/escuro
-- Dados salvos localmente no navegador via `localStorage`
+## 📂 Estrutura do Projeto
 
-## Como publicar no GitHub Pages
-
-1. Faça push do repositório para o GitHub.
-2. No repositório GitHub, abra `Settings` > `Pages`.
-3. Selecione a branch `master` e a pasta `/docs`.
-4. Salve e aguarde a publicação.
-
-A página será servida a partir de `https://<seu-usuario>.github.io/<seu-repositorio>/`.
-
-## Como testar localmente
-
-A forma mais simples é abrir `docs/index.html` no navegador ou rodar um servidor local na pasta `docs`:
-
-```bash
-cd docs
-python -m http.server 8000
+```text
+/scrumway
+  ├── backend/              # API Python/Flask
+  │   ├── app.py            # Rotas e inicialização da API
+  │   ├── models.py         # Modelos SQLAlchemy
+  │   └── Dockerfile        # Imagem isolada do backend
+  ├── frontend/             # Frontend estático
+  │   ├── public/           # HTML, CSS, JS e assets
+  │   ├── package.json      # Scripts do frontend
+  │   └── server.js         # Servidor local simples para desenvolvimento
+  ├── infra/                # Arquivos de infraestrutura
+  │   ├── init.sql          # Script inicial do banco
+  │   ├── nginx.conf        # Proxy reverso e estáticos
+  │   └── supervisord.conf  # Processos do container integrado
+  ├── data/                 # Dados locais e arquivos gerados
+  ├── Dockerfile            # Imagem integrada: Nginx + Gunicorn
+  ├── docker-compose.yml    # Orquestração local/produção simples
+  ├── requirements.txt      # Dependências Python
+  └── README.md             # Documentação
 ```
 
-Em seguida, acesse `http://localhost:8000`.
+---
 
-## Credenciais iniciais
+## 🛠️ Configuração e Instalação
 
-- Usuário: `admin`
-- Senha: `123456`
-
-## Observações
-
-- A versão atual é uma aplicação web estática que roda no navegador.
-- Os dados do quadro são armazenados apenas no navegador atual via `localStorage`.
-- Um arquivo de credenciais criptografado pode ser usado para armazenar usuário e senha sem um banco de dados.
-
-## Armazenamento seguro de credenciais
-
-O projeto agora inclui um sistema leve de credenciais criptografadas em `data/credentials.enc`.
-A chave secreta não deve ser armazenada no repositório; use a variável de ambiente `AUTH_SECRET`.
-
-Para iniciar o arquivo de credenciais:
-
+### 1. Preparar o Ambiente
 ```bash
-copy .env.example .env
-setx AUTH_SECRET "seu_segredo_forte_aqui"
-python init_credentials.py
+git clone https://github.com/nadsonpaulo/ScrumWay.git
+cd ScrumWay
+python3 -m pip install -r requirements.txt
 ```
 
-O arquivo criptografado será criado em `data/credentials.enc`.
-
-Usuário padrão: `admin` / `123456`
-
-## Estrutura atual do projeto
-
-- `docs/index.html`
-- `docs/app.js`
-- `docs/style.css`
-- `auth_storage.py`
-- `init_credentials.py`
-- `data/credentials.enc`
-- `.env.example`
-- `README.md`
-- `package.json`
-- `.gitignore`
-
-## Como testar localmente
-
-A forma mais simples é abrir `docs/index.html` no navegador ou rodar um servidor local na pasta `docs`:
-
+### 2. Configurar Variáveis
+Crie o arquivo `.env` na raiz:
 ```bash
-cd docs
-python -m http.server 8000
+AUTH_SECRET=seu_segredo_aleatorio_aqui
+ADMIN_PASSWORD=admin
 ```
 
-Em seguida, acesse `http://localhost:8000`.
-
-## Verificação de estrutura
-
-No diretório raiz do projeto, execute:
-
+### 3. Iniciar o Sistema
+Inicie o backend:
 ```bash
-npm test
+python3 backend/app.py
 ```
+O backend estará ativo em `http://localhost:5000`.
 
-Isso valida se os arquivos principais estão presentes em `docs/`.
+Para servir apenas o frontend em desenvolvimento:
+```bash
+cd frontend
+npm start
+```
+O frontend estará ativo em `http://localhost:8001`.
+
+---
+
+## 🔑 Acesso Administrativo
+
+O usuário inicial é `admin` com a senha definida no seu `.env` (padrão `admin`). No primeiro login, o sistema exigirá a criação de uma senha forte de no mínimo 8 caracteres.
+
+---
+
+## 🌐 Deploy (Produção)
+
+- **Frontend**: A pasta `frontend/public/` contém os arquivos estáticos.
+- **Backend**: O código é compatível com **Render**, **Railway** ou **PythonAnywhere**. 
+    - Lembre-se de configurar as variáveis de ambiente `AUTH_SECRET` e `ADMIN_PASSWORD` no painel da sua hospedagem.
+
+---
+
+## 📄 Licença
+Desenvolvido para gestão ágil e colaborativa.
