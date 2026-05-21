@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScrumWay | Gestão Inteligente</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="style.css">
+  <!-- Flatpickr (Calendar) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://npmcdn.com/flatpickr/dist/l10n/pt.js"></script>
+  
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://127.0.0.1:5000 wss://gc.kis.v2.scr.kaspersky-labs.com https://gc.kis.v2.scr.kaspersky-labs.com https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://npmcdn.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:;">
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg mb-4">
+  <div class="container-fluid px-4">
+    <a class="navbar-brand" href="#">ScrumWay</a>
+    <div class="d-flex align-items-center gap-2">
+      <div id="authButtons" class="hidden d-flex gap-2 align-items-center">
+        <button class="btn btn-outline-primary btn-sm" id="exportDataBtn">Exportar Backup</button>
+        <button class="btn btn-outline-secondary btn-sm" id="importDataBtn">Importar</button>
+        <button class="btn btn-warning btn-sm hidden" id="adminBtn">Gerenciar Usuários</button>
+        <button class="btn btn-outline-danger btn-sm" id="logoutBtn">Sair da Sessão</button>
+        <input type="file" id="importFile" class="hidden" accept=".json">
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="container-fluid px-4 pb-5">
+  <div id="flashContainer"></div>
+
+  <!-- Auth Sections -->
+  <section id="loginSection" class="view-section">
+    <div class="row justify-content-center mt-5">
+      <div class="col-md-5 col-lg-4">
+        <div class="card p-4 shadow">
+          <div class="text-center mb-4">
+            <h2 class="h3">Bem-vindo</h2>
+            <p class="text-muted">Acesse seu quadro de trabalho</p>
+          </div>
+          <form id="loginForm">
+            <div class="mb-3">
+              <label class="form-label">Usuário</label>
+              <input type="text" class="form-control" id="loginUsername" placeholder="Digite seu usuário" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Senha</label>
+              <input type="password" class="form-control" id="loginPassword" placeholder="••••••••" required>
+            </div>
+            <button class="btn btn-primary w-100 py-2" type="submit">Entrar no Sistema</button>
+          </form>
+          <div class="mt-4 text-center small">
+            <button class="btn btn-link text-decoration-none p-0" id="showRegister">Criar nova conta</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="registerSection" class="view-section hidden">
+    <div class="row justify-content-center mt-5">
+      <div class="col-md-5 col-lg-4">
+        <div class="card p-4 shadow">
+          <h2 class="h3 mb-4">Novo Cadastro</h2>
+          <form id="registerForm">
+            <div class="mb-3">
+              <label class="form-label">Usuário</label>
+              <input type="text" class="form-control" id="registerUsername" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Email</label>
+              <input type="email" class="form-control" id="registerEmail" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Senha</label>
+              <div class="input-group">
+                <input type="text" class="form-control" id="registerPassword" placeholder="Mín. 8 caracteres" required>
+                <button class="btn btn-outline-secondary" type="button" onclick="generateRegisterPassword()">Gerar</button>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Confirmar senha</label>
+              <input type="password" class="form-control" id="registerConfirmPassword" required>
+            </div>
+            <button class="btn btn-primary w-100 py-2" type="submit">Criar Conta</button>
+          </form>
+          <div class="mt-3 text-center">
+            <button class="btn btn-link text-decoration-none" id="backToLoginFromRegister">Voltar ao login</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Board Section -->
+  <section id="boardSection" class="view-section hidden">
+    <div class="mb-4">
+      <h2 class="mb-1">Quadro SCRUM</h2>
+      <p class="text-muted mb-0">Olá, <span id="boardUsername" class="fw-bold text-primary"></span>. Organize suas sprints com eficiência.</p>
+    </div>
+
+    <!-- Control Area (Moved from sidebar) -->
+
+
+    <!-- The Grid Board -->
+    <div class="scrum-board-layout shadow">
+      <!-- Header Row -->
+      <div class="grid-header-meta">
+        <div class="meta-item main-goal">
+          <div class="meta-label">META DA SPRINT</div>
+          <div class="meta-content w-100 px-3">
+            <textarea id="sprintGoal" class="transparent-input" placeholder="Defina o objetivo da sprint..." rows="2" style="resize: none; text-align: center; height: auto; overflow: hidden; font-size: 1.2rem;"></textarea>
+          </div>
+        </div>
+        <div class="meta-item main-goal">
+          <div class="meta-label">VISÃO DO PRODUTO</div>
+          <div class="meta-content w-100 px-3">
+            <textarea id="productVisionText" class="transparent-input" placeholder="Defina a visão..." rows="2" style="resize: none; text-align: center; height: auto; overflow: hidden; font-size: 1.2rem;"></textarea>
+          </div>
+        </div>
+        <div class="meta-item main-goal">
+          <div class="meta-label">INCREMENTO DA SPRINT</div>
+          <div class="meta-content w-100 px-3">
+            <textarea id="sprintIncrementText" class="transparent-input" placeholder="Defina o incremento..." rows="2" style="resize: none; text-align: center; height: auto; overflow: hidden; font-size: 1.2rem;"></textarea>
+          </div>
+        </div>
+        <div class="meta-item period">
+          <div class="meta-label">PERÍODO</div>
+          <div class="meta-content">
+            <input type="text" id="sprintPeriod" class="transparent-input text-center" placeholder="DD/MM - DD/MM">
+          </div>
+        </div>
+      </div>
+
+      <!-- Column Headers -->
+      <div class="grid-column-labels">
+        <div class="col-label d-flex justify-content-between align-items-center px-2">
+          <span>SPRINT BACKLOG</span>
+          <button class="btn btn-xs btn-outline-primary p-1 py-0" onclick="handleAddBacklogTask()" style="font-size: 0.7rem; font-weight: bold;">+</button>
+        </div>
+        <div class="col-label">A FAZER</div>
+        <div class="col-label">FAZENDO (WIP. 3)</div>
+        <div class="col-label">REVIEW</div>
+        <div class="col-label">FEITO</div>
+      </div>
+
+      <!-- Main Content (Tasks) -->
+      <div class="grid-main-content">
+        <div class="task-list" data-column="stories" id="columnStories"></div>
+        <div class="task-list" data-column="todo" id="columnTodo"></div>
+        <div class="task-list" data-column="inprogress" id="columnInProgress"></div>
+        <div class="task-list" data-column="review" id="columnReview"></div>
+        <div class="task-list" data-column="done" id="columnDone"></div>
+      </div>
+
+      <!-- Footer Row -->
+      <div class="grid-footer">
+        <div class="footer-item impediments">
+          <div class="footer-label d-flex justify-content-between align-items-center">
+            <span>IMPEDIMENTOS</span>
+            <button class="btn btn-xs btn-outline-danger p-1 py-0" onclick="handleAddImpediment()" style="font-size: 0.7rem; font-weight: bold;">+</button>
+          </div>
+          <div class="footer-content" id="impedimentsContainer" style="padding: 5px;">
+            <!-- Post-its aqui -->
+          </div>
+        </div>
+        <div class="footer-item burndown">
+          <div style="text-align: center; font-weight: 800; font-size: 0.85rem; margin-bottom: 5px; color: #000; text-transform: uppercase; letter-spacing: 0.5px;">GRÁFICO DE BURNDOWN</div>
+          <div class="burndown-viz">
+            <div class="y-axis">24</div>
+            <div class="chart-area">
+              <div class="chart-line"></div>
+            </div>
+            <div class="x-axis">0</div>
+          </div>
+        </div>
+        <div class="footer-item dod">
+          <div class="footer-label d-flex justify-content-between align-items-center">
+            <span>DoD</span>
+            <button class="btn btn-xs btn-outline-success p-1 py-0" onclick="handleAddDod()" style="font-size: 0.7rem; font-weight: bold;">+</button>
+          </div>
+          <div class="footer-content" id="dodContainer" style="padding: 5px;">
+            <!-- DoD items aqui -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <section id="adminSection" class="view-section hidden">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div>
+        <h2 class="mb-1">Gerenciamento de Usuários</h2>
+        <p class="text-muted">Painel administrativo para controle de contas.</p>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary btn-sm" id="toggleNewUserForm">+ Novo Usuário</button>
+        <button class="btn btn-outline-secondary btn-sm" id="backToBoardFromAdmin">Voltar ao Quadro</button>
+      </div>
+    </div>
+
+    <!-- Formulário de Novo Usuário (colapsável) -->
+    <div id="newUserFormCard" class="card shadow-sm mb-4" style="display: none;">
+      <div class="card-body p-4">
+        <h5 class="fw-bold mb-3">Cadastrar Novo Usuário</h5>
+        <form id="createUserForm">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label small fw-bold">Usuário</label>
+              <input type="text" class="form-control" id="newUserUsername" placeholder="Nome de usuário" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-bold">Email</label>
+              <input type="email" class="form-control" id="newUserEmail" placeholder="email@exemplo.com" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-bold">Senha</label>
+              <div class="input-group">
+                <input type="text" class="form-control" id="newUserPassword" placeholder="Mín. 8 caracteres" required minlength="8">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="generatePasswordBtn" title="Gerar senha aleatória">🎲 Gerar</button>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-bold">Perfil</label>
+              <select class="form-select" id="newUserRole">
+                <option value="Team">Team</option>
+                <option value="PO">PO</option>
+                <option value="SM">SM</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+          </div>
+          <div class="d-flex justify-content-end gap-2 mt-3">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="cancelNewUser">Cancelar</button>
+            <button type="submit" class="btn btn-primary btn-sm">Criar Usuário</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>ID</th>
+              <th>Usuário</th>
+              <th>Email</th>
+              <th>Perfil</th>
+              <th class="text-end">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <!-- Usuários serão carregados aqui -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Modal Gerenciar Usuário -->
+<div class="modal fade" id="manageUserModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="fw-bold">Gerenciar Usuário: <span id="manageUsername"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="manageUserId">
+        
+        <div class="mb-4">
+          <label class="form-label small fw-bold">Alterar Perfil</label>
+          <div class="d-flex gap-2">
+            <select class="form-select" id="editUserRole">
+              <option value="Team">Team</option>
+              <option value="PO">PO (Product Owner)</option>
+              <option value="SM">SM (Scrum Master)</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button class="btn btn-primary" onclick="saveUserRole()">Salvar</button>
+          </div>
+        </div>
+
+        <hr class="my-4">
+
+        <div>
+          <label class="form-label small fw-bold">Redefinir Senha</label>
+          <div class="input-group">
+            <input type="text" class="form-control" id="resetUserPassword" placeholder="Nova senha (mín. 8 chars)">
+            <button class="btn btn-outline-secondary" onclick="generateRandomPassword()">Gerar</button>
+            <button class="btn btn-danger" onclick="saveUserPassword()">Redefinir</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Troca Obrigatória de Senha -->
+<div class="modal fade" id="forceChangePasswordModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="fw-bold text-danger">⚠️ Troca de Senha Obrigatória</h5>
+      </div>
+      <div class="modal-body">
+        <p>Por motivos de segurança, você deve alterar sua senha padrão antes de continuar.</p>
+        <div class="mb-3">
+          <label class="form-label small fw-bold">Nova Senha (mín. 8 caracteres)</label>
+          <div class="input-group">
+            <input type="text" class="form-control" id="forceNewPassword" placeholder="Digite sua nova senha">
+            <button class="btn btn-outline-secondary" onclick="generateForcePassword()">Gerar</button>
+          </div>
+        </div>
+        <div class="d-grid">
+          <button class="btn btn-primary" onclick="submitForcePasswordChange()">Salvar Nova Senha e Entrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="selection-popup" id="selectionPopup"></div>
+
+<!-- Modal Editar -->
+<div class="modal fade" id="editTaskModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="fw-bold">Editar Tarefa</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="editTaskForm">
+          <input type="hidden" id="editTaskId">
+
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Descrição</label>
+            <textarea class="form-control" id="editTaskDescription" rows="3"></textarea>
+          </div>
+          <div class="row">
+            <div class="col-6 mb-3">
+              <label class="form-label small fw-bold">Complexidade</label>
+              <div class="input-group">
+                <button type="button" class="btn btn-light border" id="decrementPriority">-</button>
+                <input type="text" class="form-control text-center" id="editTaskPriority" readonly>
+                <button type="button" class="btn btn-light border" id="incrementPriority">+</button>
+              </div>
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label small fw-bold">Coluna</label>
+              <select class="form-select" id="editTaskColumn">
+                <option value="stories">SPRINT BACKLOG</option>
+                <option value="todo">A FAZER</option>
+                <option value="inprogress">FAZENDO</option>
+                <option value="review">REVIEW</option>
+                <option value="done">FEITO</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-4">
+            <label class="form-label small fw-bold">Responsável</label>
+            <select class="form-select" id="editTaskAssignee"></select>
+          </div>
+          <div class="d-grid">
+            <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+<script src="app.js"></script>
+<button class="floating-theme-btn shadow" id="btnTheme" title="Alternar Tema">🌙</button>
+</body>
+</html>

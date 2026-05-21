@@ -1,0 +1,10 @@
+services:
+  scrumway_app:
+    build: .
+    image: scrumway
+    container_name: scrumway_app
+    env_file:
+      - .env
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
