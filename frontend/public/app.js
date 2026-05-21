@@ -1,5 +1,13 @@
 const columns = ['stories','todo','inprogress','review','done'];
-const fibonacci = [0,1,1,2,3,5,8,13,21,34,55,89,144,233,377];
+const fibonacci = [1,2,3,5,8,13];
+const taskCategories = [
+  { value: 'frontend', label: 'Frontend', short: 'FEnd', color: '#3b82f6' },
+  { value: 'backend', label: 'Backend', short: 'BEnd', color: '#ef4444' },
+  { value: 'infra', label: 'Infraestrutura', short: 'Inf', color: '#10b981' },
+  { value: 'bugs', label: 'Bugs', short: 'Bugs', color: '#f59e0b' },
+  { value: 'uxui', label: 'UX/UI', short: 'UX/UI', color: '#8b5cf6' },
+  { value: 'docs', label: 'Documentação', short: 'Doc', color: '#64748b' }
+];
 const defaultState = {
   currentUser: null,
   role: 'Team',
@@ -620,16 +628,33 @@ async function apiFetch(url, options = {}) {
   return response;
 }
 
+async function refreshSystemUsers() {
+  try {
+    const res = await apiFetch(`${API_URL}/users`);
+    if (!res.ok) throw new Error('Erro ao buscar usuários.');
+    const users = await res.json();
+    systemUsers = users.map((user, index) => ({
+      id: user.id || index + 1,
+      username: user.username,
+      role: user.role
+    })).filter(user => user.username);
+    return systemUsers;
+  } catch (err) {
+    try {
+      const users = await getLocalUsers();
+      systemUsers = users.map(user => ({ id: user.id, username: user.username, role: user.role })).filter(user => user.username);
+    } catch (e) {}
+    return systemUsers;
+  }
+}
+
 // --- Funções de UI ---
 
 async function renderBoard() {
   if (!state.currentUser) return;
   
   // Busca usuários do sistema para atribuição nas tarefas
-  try {
-    const users = await getLocalUsers();
-    systemUsers = users.map(u => ({ id: u.id, username: u.username, role: u.role }));
-  } catch (e) {}
+  await refreshSystemUsers();
 
   elements.boardUsername.textContent = state.currentUser;
   if (elements.notesText) elements.notesText.value = (state.notes || {})[state.currentUser] || '';
@@ -735,9 +760,10 @@ function impedimentCard(imp, priorityIndex = 0) {
     </div>
     <div class="fw-bold mb-3 pe-4" style="font-size: 0.95rem; line-height: 1.4;">${escapeHtml(task.description || 'Card sem descrição')}</div>
     <div class="d-flex gap-2 mb-1 align-items-center pe-4">
-      <span class="badge" style="background:${color}; color:#fff;">👤 ${escapeHtml(task.assignee || 'Não atribuído')}</span>
-      <span class="badge badge-priority">🔥 ${escapeHtml(task.priority || '0')}</span>
-      <span class="badge" style="background: #f1f5f9; color: #475569; font-weight: 700;">📌 P${priorityIndex}</span>
+      ${assigneeIconBadge(task, color, false)}
+      ${complexityBadge(task, false)}
+      ${taskCategoryBadge(task, false)}
+      ${taskOrderBadge(task, priorityIndex, false)}
     </div>
     <button type="button" class="impediment-reason-btn" title="${escapeHtml(reason)}" aria-label="Motivo do impedimento: ${escapeHtml(reason)}">!</button>
   </div>`;
@@ -917,6 +943,36 @@ function getUserColor(username) {
   return color;
 }
 
+function getTaskCategory(categoryValue) {
+  return taskCategories.find(category => category.value === categoryValue) || taskCategories[0];
+}
+
+function taskCategoryBadge(task, editable = true) {
+  const category = getTaskCategory(task.category);
+  const clickHandler = editable ? ` onclick="showSelection(this, '${task.id}', 'category')"` : '';
+  const clickableClass = editable ? ' badge-clickable' : '';
+  return `<span class="badge task-category-badge${clickableClass}" style="background:${category.color}; color:#fff;" title="${escapeHtml(category.label)}"${clickHandler}>${escapeHtml(category.short)}</span>`;
+}
+
+function assigneeIconBadge(task, color, editable = true) {
+  const assignee = task.assignee || 'Não atribuído';
+  const clickHandler = editable ? ` onclick="showSelection(this, '${task.id}', 'assignee')"` : ' onclick="showAssigneeName(this)"';
+  return `<span class="badge assignee-icon-badge badge-clickable" style="background:${color}; color:#fff;" title="${escapeHtml(assignee)}"${clickHandler}>👤</span>`;
+}
+
+function complexityBadge(task, editable = true) {
+  const complexity = task.priority || '0';
+  const clickHandler = editable ? ` onclick="showSelection(this, '${task.id}', 'priority')"` : '';
+  const clickableClass = editable ? ' badge-clickable' : '';
+  return `<span class="badge badge-priority${clickableClass}" title="Complexidade ${escapeHtml(complexity)}"${clickHandler}>🔥 ${escapeHtml(complexity)}</span>`;
+}
+
+function taskOrderBadge(task, priorityIndex = 0, editable = true) {
+  const clickHandler = editable ? ` onclick="showSelection(this, '${task.id}', 'order')"` : '';
+  const clickableClass = editable ? ' badge-clickable' : '';
+  return `<span class="badge task-order-badge${clickableClass}" title="Prioridade P${priorityIndex}"${clickHandler}>📌 P${priorityIndex}</span>`;
+}
+
 function taskCard(task, priorityIndex = 0) {
   const color = getUserColor(task.assignee);
   return `<div class="card task-card shadow-sm p-3 position-relative" draggable="true" data-task-id="${task.id}" style="border-left: 4px solid ${color}">
@@ -931,9 +987,10 @@ function taskCard(task, priorityIndex = 0) {
     </div>
     <div class="fw-bold mb-3 pe-4" onclick="openEditModal('${task.id}')" style="cursor:pointer; font-size: 0.95rem; line-height: 1.4;">${escapeHtml(task.description || 'Clique para descrever a tarefa...')}</div>
     <div class="d-flex gap-2 mb-1 align-items-center">
-      <span class="badge badge-clickable" style="background:${color}; color:#fff;" onclick="showSelection(this, '${task.id}', 'assignee')">👤 ${escapeHtml(task.assignee)}</span>
-      <span class="badge badge-clickable badge-priority" onclick="showSelection(this, '${task.id}', 'priority')">🔥 ${escapeHtml(task.priority)}</span>
-      <span class="badge" style="background: #f1f5f9; color: #475569; font-weight: 700;">📌 P${priorityIndex}</span>
+      ${assigneeIconBadge(task, color)}
+      ${complexityBadge(task)}
+      ${taskCategoryBadge(task)}
+      ${taskOrderBadge(task, priorityIndex)}
     </div>
   </div>`;
 }
@@ -946,6 +1003,7 @@ window.handleAddBacklogTask = async () => {
     description: '',
     priority: '0', 
     assignee: 'Não atribuído', 
+    category: 'frontend',
     column: 'stories', 
     createdAt: new Date().toISOString() 
   }); 
@@ -1319,6 +1377,7 @@ async function restoreImpedimentToTask(impedimentId, column) {
         description: impediment.text || '',
         priority: '0',
         assignee: 'Não atribuído',
+        category: 'frontend',
         createdAt: new Date().toISOString()
       };
 
@@ -1346,25 +1405,88 @@ function getDragAfterElement(container, y) {
   }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
-window.showSelection = (el, id, f) => {
+window.showAssigneeName = el => {
+  const popup = document.getElementById('selectionPopup');
+  popup.innerHTML = '';
+  const current = document.createElement('div');
+  current.className = 'selection-current';
+  current.textContent = `Atribuído: ${el.getAttribute('title') || 'Não atribuído'}`;
+  popup.appendChild(current);
+  const r = el.getBoundingClientRect();
+  popup.style.left = `${r.left + window.scrollX}px`;
+  popup.style.top = `${r.bottom + window.scrollY + 5}px`;
+  popup.classList.add('visible');
+};
+
+window.showSelection = async (el, id, f) => {
   const popup = document.getElementById('selectionPopup');
   const task = state.tasks.find(t => t.id === id);
   if (!task) return;
-  const opts = f === 'assignee' ? [{ label: 'Não atribuído', value: 'Não atribuído' }, ...systemUsers.map(u => ({ label: u.username, value: u.username }))] : [0,1,1,2,3,5,8,13,21,34,55,89,144,233,377].map(n => ({ label: String(n), value: String(n) }));
+  if (f === 'assignee') await refreshSystemUsers();
+  const columnTasks = state.tasks
+    .filter(item => item.owner === state.currentUser && item.column === task.column)
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  const opts = f === 'assignee'
+    ? [{ label: 'Não atribuído', value: 'Não atribuído' }, ...systemUsers.map(u => ({ label: u.username, value: u.username }))]
+    : f === 'order'
+      ? columnTasks.map((_, index) => ({ label: `P${index}`, value: String(index) }))
+      : f === 'category'
+        ? taskCategories.map(category => ({ label: `${category.label} (${category.short})`, value: category.value }))
+        : fibonacci.map(n => ({ label: String(n), value: String(n) }));
   popup.innerHTML = '';
-  opts.forEach(o => { const b = document.createElement('button'); b.textContent = o.label; b.onclick = async () => { task[f] = o.value; await saveState(); renderBoard(); popup.classList.remove('visible'); }; popup.appendChild(b); });
+  if (f === 'assignee' || f === 'priority' || f === 'order' || f === 'category') {
+    const current = document.createElement('div');
+    current.className = 'selection-current';
+    const currentOrder = columnTasks.findIndex(item => item.id === task.id);
+    current.textContent = f === 'assignee'
+      ? `Atribuído: ${task.assignee || 'Não atribuído'}`
+      : f === 'order'
+        ? `Prioridade atual: P${Math.max(0, currentOrder)}`
+        : f === 'category'
+          ? `Categoria atual: ${getTaskCategory(task.category).label}`
+          : `Complexidade atual: ${task.priority || '0'}`;
+    popup.appendChild(current);
+  }
+  opts.forEach(o => {
+    const b = document.createElement('button');
+    b.textContent = o.label;
+    b.onclick = async () => {
+      if (f === 'order') reorderTask(task, Number(o.value));
+      else task[f] = o.value;
+      await saveState();
+      renderBoard();
+      popup.classList.remove('visible');
+    };
+    popup.appendChild(b);
+  });
   const r = el.getBoundingClientRect(); popup.style.left = `${r.left + window.scrollX}px`; popup.style.top = `${r.bottom + window.scrollY + 5}px`; popup.classList.add('visible');
 };
 
+function reorderTask(task, targetIndex) {
+  const columnTasks = state.tasks
+    .filter(item => item.owner === state.currentUser && item.column === task.column)
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  const currentIndex = columnTasks.findIndex(item => item.id === task.id);
+  if (currentIndex < 0) return;
+
+  const [movedTask] = columnTasks.splice(currentIndex, 1);
+  columnTasks.splice(Math.max(0, Math.min(targetIndex, columnTasks.length)), 0, movedTask);
+  columnTasks.forEach((item, index) => { item.order = index; });
+}
+
 function toggleSelectionPopup(s) { document.getElementById('selectionPopup').classList.toggle('visible', s); }
 
-window.openEditModal = id => {
+window.openEditModal = async id => {
   const t = state.tasks.find(t => t.id === id); if (!t) return;
   document.getElementById('editTaskId').value = t.id; 
   document.getElementById('editTaskDescription').value = t.description; 
   document.getElementById('editTaskPriority').value = t.priority; 
   document.getElementById('editTaskColumn').value = t.column;
+  await refreshSystemUsers();
   const s = document.getElementById('editTaskAssignee'); s.innerHTML = `<option value="Não atribuído">Não atribuído</option>` + systemUsers.map(u => `<option value="${u.username}">${u.username}</option>`).join(''); s.value = t.assignee;
+  const categorySelect = document.getElementById('editTaskCategory');
+  categorySelect.innerHTML = taskCategories.map(category => `<option value="${category.value}">${category.label} (${category.short})</option>`).join('');
+  categorySelect.value = getTaskCategory(t.category).value;
   if (editModal) editModal.show();
 };
 
@@ -1376,6 +1498,7 @@ document.getElementById('editTaskForm').onsubmit = async e => {
     const oldCol = t.column;
     t.column = document.getElementById('editTaskColumn').value; 
     t.assignee = document.getElementById('editTaskAssignee').value; 
+    t.category = document.getElementById('editTaskCategory').value;
     if (t.column === 'done' && oldCol !== 'done') t.completedAt = new Date().toISOString();
     else if (t.column !== 'done') delete t.completedAt;
     await saveState(); renderBoard(); if (editModal) editModal.hide(); 

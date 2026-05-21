@@ -610,6 +610,33 @@ h1, h2, h3, h4, h5 {
   color: #fbbf24;
 }
 
+.task-category-badge {
+  min-width: 42px;
+  text-align: center;
+  font-weight: 800;
+}
+
+.task-order-badge {
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 800;
+}
+
+.dark .task-order-badge {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+.assignee-icon-badge {
+  width: 28px;
+  min-width: 28px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
 /* Forms & Inputs */
 .form-control, .form-select {
   border-radius: 0.75rem;
@@ -712,6 +739,8 @@ h1, h2, h3, h4, h5 {
 .selection-popup {
   position: absolute;
   z-index: 1050;
+  width: 220px;
+  max-width: min(220px, calc(100vw - 24px));
   background: var(--card-light);
   border: 1px solid var(--border-light);
   border-radius: 1rem;
@@ -735,6 +764,23 @@ h1, h2, h3, h4, h5 {
   display: block;
 }
 
+.selection-current {
+  padding: 0.45rem 0.75rem;
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-light);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dark .selection-current {
+  border-bottom-color: var(--border-dark);
+  color: var(--text-dark);
+}
+
 .selection-popup button {
   width: 100%;
   padding: 0.6rem 1rem;
@@ -744,6 +790,9 @@ h1, h2, h3, h4, h5 {
   text-align: left;
   color: inherit;
   font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .selection-popup button:hover {
