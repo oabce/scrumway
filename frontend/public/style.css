@@ -88,6 +88,42 @@ h1, h2, h3, h4, h5 {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05) !important;
 }
 
+
+.board-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.board-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: min(100%, 560px);
+}
+
+.board-actions .form-select {
+  min-width: 220px;
+}
+
+.board-create-group {
+  min-width: 260px;
+}
+
+@media (max-width: 768px) {
+  .board-toolbar,
+  .board-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .board-actions .form-select,
+  .board-create-group {
+    min-width: 100%;
+  }
+}
+
 /* Scrum Board Remodel (Table-like Grid) */
 .scrum-board-layout {
   display: flex;

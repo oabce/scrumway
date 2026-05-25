@@ -11,20 +11,21 @@ const taskCategories = [
 const defaultState = {
   currentUser: null,
   role: 'Team',
-  notes: {},
-  productVision: {},
-  sprintIncrement: {},
+  currentBoardId: null,
+  currentBoardName: '',
+  notes: '',
+  productVision: '',
+  sprintIncrement: '',
   teamMembers: {},
   tasks: [],
-  sprintGoal: {},
-  sprintPeriod: {},
-  impediments: {},
-  dod: {}
+  sprintGoal: '',
+  sprintPeriod: '',
+  impediments: [],
+  dod: []
 };
 
 const VAULT_PREFIX = '_sw_v_';
 const SESSION_KEY = '_sw_s';
-const SESSION_PASSWORD_KEY = '_sw_sp';
 const SALT = 'scrumway_salt_2024';
 const API_URL = '/api';
 
@@ -88,7 +89,6 @@ function generateUUID() {
 }
 
 let state = { ...defaultState };
-let currentVaultPassword = '';
 let sessionHeartbeat = null;
 let currentSessionID = generateUUID();
 let elements = {};
@@ -96,6 +96,7 @@ let editModal;
 let impedimentReasonModal;
 let pendingImpedimentTaskId = null;
 let systemUsers = [];
+let boards = [];
 let burndownResizeTimer = null;
 
 document.addEventListener('DOMContentLoaded', init);
@@ -163,15 +164,129 @@ async function decryptData(encryptedBase64, password) {
   }
 }
 
-async function persistVault() {
-  if (!currentVaultPassword || !state.currentUser) return;
-  const encrypted = await encryptData(state, currentVaultPassword);
-  localStorage.setItem(VAULT_PREFIX + state.currentUser, encrypted);
+function getLocalVault(username) {
+  return localStorage.getItem(VAULT_PREFIX + username) || localStorage.getItem(VAULT_PREFIX + hashStringSync(username));
+}
+
+function valueForBoard(data, key, username, fallback) {
+  const value = data?.[key];
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value[username] ?? fallback;
+  }
+  return value ?? fallback;
+}
+
+function normalizeBoardState(data = {}, username = state.currentUser, board = {}) {
+  return {
+    ...defaultState,
+    ...data,
+    currentUser: username || data.currentUser || null,
+    role: state.role || data.role || 'Team',
+    currentBoardId: board.id ?? data.currentBoardId ?? state.currentBoardId ?? null,
+    currentBoardName: board.name ?? data.currentBoardName ?? state.currentBoardName ?? '',
+    notes: valueForBoard(data, 'notes', username, ''),
+    productVision: valueForBoard(data, 'productVision', username, ''),
+    sprintIncrement: valueForBoard(data, 'sprintIncrement', username, ''),
+    sprintGoal: valueForBoard(data, 'sprintGoal', username, ''),
+    sprintPeriod: valueForBoard(data, 'sprintPeriod', username, ''),
+    tasks: Array.isArray(data.tasks) ? data.tasks.map(task => ({ ...task, owner: task.owner || username })) : [],
+    impediments: Array.isArray(data.impediments)
+      ? data.impediments
+      : (data.impediments && typeof data.impediments === 'object' ? (data.impediments[username] || []) : []),
+    dod: Array.isArray(data.dod)
+      ? data.dod
+      : (data.dod && typeof data.dod === 'object' ? (data.dod[username] || []) : [])
+  };
+}
+
+async function fetchBoards() {
+  const res = await apiFetch(`${API_URL}/boards`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+async function createBoard(name) {
+  const res = await apiFetch(`${API_URL}/boards`, {
+    method: 'POST',
+    body: JSON.stringify({ name })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Erro ao criar quadro');
+  return data;
+}
+
+async function fetchBoardState(boardId) {
+  const res = await apiFetch(`${API_URL}/boards/${boardId}/state`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function persistBoardState() {
+  if (!state.currentUser || !state.currentBoardId) return;
+  const boardData = { ...state, currentUser: null, role: null };
+  const res = await apiFetch(`${API_URL}/boards/${state.currentBoardId}/state`, {
+    method: 'PUT',
+    body: JSON.stringify({ board_data: boardData })
+  });
+  if (!res.ok) throw new Error('Falha ao salvar dados do quadro');
+  localStorage.removeItem(VAULT_PREFIX + state.currentUser);
+  localStorage.removeItem(VAULT_PREFIX + hashStringSync(state.currentUser));
 }
 
 async function saveState() {
   localStorage.setItem('scrumway_theme', document.body.classList.contains('dark') ? 'dark' : 'light');
-  if (state.currentUser) await persistVault();
+  if (!state.currentUser) return;
+  try {
+    await persistBoardState();
+  } catch (e) {
+    showFlash('Não foi possível salvar os dados no servidor.', 'warning');
+  }
+}
+
+function renderBoardSelector() {
+  if (!elements.boardSelect) return;
+  elements.boardSelect.innerHTML = boards.map(board => `
+    <option value="${board.id}"${board.id === state.currentBoardId ? ' selected' : ''}>${escapeHtml(board.name)}</option>
+  `).join('');
+  if (elements.activeBoardName) elements.activeBoardName.textContent = state.currentBoardName || 'Sem projeto';
+}
+
+async function loadBoards(preferredBoardId = null) {
+  boards = await fetchBoards();
+  if (!boards.length) return false;
+  const savedBoardId = Number(sessionStorage.getItem('scrumway_board_id')) || null;
+  const targetId = preferredBoardId || savedBoardId || state.currentBoardId || boards[0].id;
+  const selected = boards.find(board => board.id === targetId) || boards[0];
+  await selectBoard(selected.id, false);
+  return true;
+}
+
+async function selectBoard(boardId, shouldSave = true) {
+  const response = await fetchBoardState(boardId);
+  if (!response) {
+    showFlash('Não foi possível carregar o quadro selecionado.', 'danger');
+    return;
+  }
+
+  state = normalizeBoardState(response.board_data || {}, state.currentUser, response.board);
+  if (shouldSave) sessionStorage.setItem('scrumway_board_id', String(boardId));
+  renderBoardSelector();
+  renderBoard();
+}
+
+async function handleCreateBoard() {
+  const name = (elements.newBoardName?.value || '').trim();
+  if (name.length < 3) return showFlash('Informe um nome com pelo menos 3 caracteres.', 'warning');
+
+  try {
+    const board = await createBoard(name);
+    if (elements.newBoardName) elements.newBoardName.value = '';
+    boards = await fetchBoards();
+    await selectBoard(board.id);
+    showFlash(`Quadro "${escapeHtml(board.name)}" criado.`, 'success');
+  } catch (err) {
+    showFlash(err.message || 'Erro ao criar quadro.', 'danger');
+  }
 }
 
 // --- Funções de Sessão ---
@@ -201,31 +316,21 @@ function startSession(username) {
 }
 async function restoreSession() {
   const token = sessionStorage.getItem('scrumway_token');
-  const savedPassword = sessionStorage.getItem(SESSION_PASSWORD_KEY);
   const sess = getObfuscatedItem(SESSION_KEY);
-  if (!token || !savedPassword || !sess.username) return false;
+  if (!token || !sess.username) return false;
 
-  const vault = localStorage.getItem(VAULT_PREFIX + sess.username);
-  const loadedState = vault ? await decryptData(vault, savedPassword) : { ...defaultState };
-  if (!loadedState) return false;
+  state = { ...defaultState, currentUser: sess.username };
 
   try {
     const res = await apiFetch(API_URL + '/users');
     if (!res.ok) return false;
+    const users = await res.json();
+    const current = users.find(u => u.username === sess.username);
+    state.role = current ? current.role : (state.role || 'Team');
+    await loadBoards();
   } catch (e) {
     return false;
   }
-
-  currentVaultPassword = savedPassword;
-  state = { ...defaultState, ...loadedState };
-  state.currentUser = sess.username;
-
-  try {
-    const usersRes = await apiFetch(API_URL + '/users');
-    const users = await usersRes.json();
-    const current = users.find(u => u.username === sess.username);
-    state.role = current ? current.role : (state.role || 'Team');
-  } catch (e) {}
 
   startSession(sess.username);
   elements.adminBtn.classList.toggle('hidden', state.role !== 'admin');
@@ -314,6 +419,10 @@ async function init() {
     flashContainer: document.getElementById('flashContainer'),
     btnTheme: document.getElementById('btnTheme'),
     boardUsername: document.getElementById('boardUsername'),
+    activeBoardName: document.getElementById('activeBoardName'),
+    boardSelect: document.getElementById('boardSelect'),
+    newBoardName: document.getElementById('newBoardName'),
+    createBoardBtn: document.getElementById('createBoardBtn'),
     notesText: document.getElementById('notesText'),
     productVisionText: document.getElementById('productVisionText'),
     sprintIncrementText: document.getElementById('sprintIncrementText'),
@@ -363,6 +472,8 @@ async function init() {
   document.getElementById('incrementPriority').onclick = () => adjustPriority(1);
   document.getElementById('backToBoardFromAdmin').onclick = () => showView('board');
   document.getElementById('adminBtn').onclick = () => showView('admin');
+  if (elements.boardSelect) elements.boardSelect.onchange = async () => { await selectBoard(Number(elements.boardSelect.value)); };
+  if (elements.createBoardBtn) elements.createBoardBtn.onclick = handleCreateBoard;
 
   // Novo Usuário - Toggle do formulário
   document.getElementById('toggleNewUserForm').onclick = () => {
@@ -450,8 +561,7 @@ async function init() {
       elements.sprintGoal.style.height = 'auto';
       elements.sprintGoal.style.height = elements.sprintGoal.scrollHeight + 'px';
       
-      if (!state.sprintGoal) state.sprintGoal = {}; 
-      state.sprintGoal[state.currentUser] = elements.sprintGoal.value; 
+      state.sprintGoal = elements.sprintGoal.value; 
       await saveState(); 
     };
   }
@@ -461,8 +571,7 @@ async function init() {
       elements.productVisionText.style.height = 'auto';
       elements.productVisionText.style.height = elements.productVisionText.scrollHeight + 'px';
       
-      if (!state.productVision) state.productVision = {}; 
-      state.productVision[state.currentUser] = elements.productVisionText.value; 
+      state.productVision = elements.productVisionText.value; 
       await saveState(); 
     };
   }
@@ -472,8 +581,7 @@ async function init() {
       elements.sprintIncrementText.style.height = 'auto';
       elements.sprintIncrementText.style.height = elements.sprintIncrementText.scrollHeight + 'px';
       
-      if (!state.sprintIncrement) state.sprintIncrement = {}; 
-      state.sprintIncrement[state.currentUser] = elements.sprintIncrementText.value; 
+      state.sprintIncrement = elements.sprintIncrementText.value; 
       await saveState(); 
     };
   }
@@ -485,8 +593,7 @@ async function init() {
       locale: "pt",
       onClose: async (selectedDates) => {
         if (selectedDates.length === 2) {
-          if (!state.sprintPeriod) state.sprintPeriod = {};
-          state.sprintPeriod[state.currentUser] = elements.sprintPeriod.value;
+          state.sprintPeriod = elements.sprintPeriod.value;
           await saveState();
           renderBurndown();
         }
@@ -526,29 +633,23 @@ async function handleLogin(event) {
 
     const user = data.user;
     sessionStorage.setItem('scrumway_token', data.token);
-    sessionStorage.setItem(SESSION_PASSWORD_KEY, password);
 
-    const vaultKey = VAULT_PREFIX + username;
-    const vault = localStorage.getItem(vaultKey);
+    state = { ...defaultState, currentUser: username, role: user.role };
+    await loadBoards();
 
-    // Se não houver vault para este usuário, inicializa um estado padrão
-    let loadedState = (vault) ? await decryptData(vault, password) : { ...defaultState };
-
-    if (!loadedState) {
-        if (confirm('Sua senha foi validada, mas não conseguimos abrir o seu cofre local (provavelmente ele foi criado com uma senha anterior). \n\nDeseja DESCARTAR os dados locais antigos e iniciar um novo cofre com sua nova senha?')) {
-            loadedState = { ...defaultState };
-        } else {
-            return showFlash('Acesso cancelado. O cofre local permanece bloqueado.', 'warning');
-        }
+    const localVault = getLocalVault(username);
+    if (localVault && state.currentBoardId) {
+      const legacyState = await decryptData(localVault, password);
+      if (legacyState && confirm('Encontramos dados locais antigos deste usuário. Deseja importar esses dados para o quadro selecionado?')) {
+        state = normalizeBoardState(legacyState, username, { id: state.currentBoardId, name: state.currentBoardName });
+        state.role = user.role;
+        await saveState();
+      } else if (!legacyState) {
+        showFlash('Login realizado, mas os dados locais antigos não puderam ser migrados com esta senha.', 'warning');
+      }
     }
-
-    currentVaultPassword = password;
-    state = { ...defaultState, ...loadedState };
-    state.currentUser = username;
-    state.role = user.role;
     
     startSession(username);
-    await persistVault();
 
     // Verifica se precisa trocar a senha obrigatoriamente
     if (user.force_password_change) {
@@ -603,8 +704,6 @@ function logout() {
   if (sessionHeartbeat) clearInterval(sessionHeartbeat);
   localStorage.removeItem(SESSION_KEY);
   sessionStorage.removeItem('scrumway_token');
-  sessionStorage.removeItem(SESSION_PASSWORD_KEY);
-  currentVaultPassword = ''; 
   state.currentUser = null; 
   showView('login'); 
 }
@@ -657,27 +756,27 @@ async function renderBoard() {
   await refreshSystemUsers();
 
   elements.boardUsername.textContent = state.currentUser;
-  if (elements.notesText) elements.notesText.value = (state.notes || {})[state.currentUser] || '';
+  if (elements.notesText) elements.notesText.value = state.notes || '';
   if (elements.productVisionText) {
-    elements.productVisionText.value = (state.productVision || {})[state.currentUser] || '';
+    elements.productVisionText.value = state.productVision || '';
     elements.productVisionText.style.height = 'auto';
     elements.productVisionText.style.height = elements.productVisionText.scrollHeight + 'px';
   }
   if (elements.sprintIncrementText) {
-    elements.sprintIncrementText.value = (state.sprintIncrement || {})[state.currentUser] || '';
+    elements.sprintIncrementText.value = state.sprintIncrement || '';
     elements.sprintIncrementText.style.height = 'auto';
     elements.sprintIncrementText.style.height = elements.sprintIncrementText.scrollHeight + 'px';
   }
   if (elements.sprintGoal) {
-    elements.sprintGoal.value = (state.sprintGoal || {})[state.currentUser] || '';
+    elements.sprintGoal.value = state.sprintGoal || '';
     elements.sprintGoal.style.height = 'auto';
     elements.sprintGoal.style.height = elements.sprintGoal.scrollHeight + 'px';
   }
-  if (elements.sprintPeriod) elements.sprintPeriod.value = (state.sprintPeriod || {})[state.currentUser] || '';
+  if (elements.sprintPeriod) elements.sprintPeriod.value = state.sprintPeriod || '';
   
-  const userTasks = state.tasks.filter(t => t.owner === state.currentUser);
+  const boardTasks = state.tasks;
   columns.forEach(col => {
-    const colTasks = userTasks.filter(t => t.column === col).sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+    const colTasks = boardTasks.filter(t => t.column === col).sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
     // Normaliza a ordem
     colTasks.forEach((t, i) => t.order = i);
     const container = document.getElementById(`column${col === 'inprogress' ? 'InProgress' : capitalize(col)}`);
@@ -692,7 +791,7 @@ async function renderBoard() {
 
 function renderDod() {
   if (!elements.dodContainer) return;
-  const list = state.dod[state.currentUser] || [];
+  const list = state.dod || [];
   elements.dodContainer.innerHTML = list.map(item => `
     <div class="card task-card shadow-sm p-3 position-relative" style="border-left: 4px solid #10b981; margin-bottom: 10px;">
       <div class="dropdown position-absolute" style="top:5px; right:5px;">
@@ -713,29 +812,29 @@ function renderDod() {
 }
 
 window.handleAddDod = async () => {
-  if (!state.dod[state.currentUser]) state.dod[state.currentUser] = [];
-  state.dod[state.currentUser].push({ id: generateUUID(), text: '' });
+  if (!Array.isArray(state.dod)) state.dod = [];
+  state.dod.push({ id: generateUUID(), text: '' });
   await saveState();
   renderDod();
 };
 
 window.handleDeleteDod = async (id) => {
-  state.dod[state.currentUser] = (state.dod[state.currentUser] || []).filter(i => i.id !== id);
+  state.dod = (state.dod || []).filter(i => i.id !== id);
   await saveState();
   renderDod();
 };
 
 window.updateDod = (id, val) => {
-  const item = (state.dod[state.currentUser] || []).find(i => i.id === id);
+  const item = (state.dod || []).find(i => i.id === id);
   if (item) {
     item.text = val;
-    persistVault();
+    saveState();
   }
 };
 
 function renderImpediments() {
   if (!elements.impedimentsContainer) return;
-  const list = state.impediments[state.currentUser] || [];
+  const list = state.impediments || [];
   elements.impedimentsContainer.innerHTML = list.map((imp, idx) => impedimentCard(imp, idx)).join('');
 }
 
@@ -770,23 +869,23 @@ function impedimentCard(imp, priorityIndex = 0) {
 }
 
 window.handleAddImpediment = async () => {
-  if (!state.impediments[state.currentUser]) state.impediments[state.currentUser] = [];
-  state.impediments[state.currentUser].push({ id: generateUUID(), text: '' });
+  if (!Array.isArray(state.impediments)) state.impediments = [];
+  state.impediments.push({ id: generateUUID(), text: '' });
   await saveState();
   renderImpediments();
 };
 
 window.handleDeleteImpediment = async (id) => {
-  state.impediments[state.currentUser] = (state.impediments[state.currentUser] || []).filter(i => i.id !== id);
+  state.impediments = (state.impediments || []).filter(i => i.id !== id);
   await saveState();
   renderImpediments();
 };
 
 window.updateImpediment = (id, val) => {
-  const imp = (state.impediments[state.currentUser] || []).find(i => i.id === id);
+  const imp = (state.impediments || []).find(i => i.id === id);
   if (imp) {
     imp.text = val;
-    persistVault(); // Salva sem re-renderizar para manter o foco
+    saveState(); // Salva sem re-renderizar para manter o foco
   }
 };
 
@@ -829,9 +928,9 @@ function renderBurndown() {
     };
 
     const { startDate, totalDays } = parseSprintPeriod();
-    const userTasks = state.tasks.filter(task => task.owner === state.currentUser);
-    const totalPoints = userTasks.reduce((sum, task) => sum + getPoints(task), 0);
-    const donePoints = userTasks
+    const boardTasks = state.tasks;
+    const totalPoints = boardTasks.reduce((sum, task) => sum + getPoints(task), 0);
+    const donePoints = boardTasks
     .filter(task => task.column === 'done')
     .reduce((sum, task) => sum + getPoints(task), 0);
 
@@ -847,7 +946,7 @@ function renderBurndown() {
         dayEnd.setDate(startDate.getDate() + day);
         dayEnd.setHours(23, 59, 59, 999);
 
-        const completedPoints = userTasks
+        const completedPoints = boardTasks
             .filter(task => task.column === 'done' && task.completedAt && new Date(task.completedAt) <= dayEnd)
             .reduce((sum, task) => sum + getPoints(task), 0);
 
@@ -1019,8 +1118,8 @@ async function handleCreateTask(e) {
   // Função legada removida
 }
 async function handleAddMember(e) { e.preventDefault(); }
-async function handleSaveNotes(e) { e.preventDefault(); state.notes[state.currentUser] = elements.notesText.value; await saveState(); showFlash('Notas salvas.'); }
-async function handleSaveProductVision(e) { e.preventDefault(); state.productVision[state.currentUser] = elements.productVisionText.value; await saveState(); showFlash('Visão salva.'); }
+async function handleSaveNotes(e) { e.preventDefault(); state.notes = elements.notesText.value; await saveState(); showFlash('Notas salvas.'); }
+async function handleSaveProductVision(e) { e.preventDefault(); state.productVision = elements.productVisionText.value; await saveState(); showFlash('Visão salva.'); }
 
 function showView(v) { 
   document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden')); 
@@ -1107,8 +1206,7 @@ window.submitForcePasswordChange = async () => {
         }
 
         showFlash('Senha alterada com sucesso! Você já pode usar o sistema.', 'success');
-        currentVaultPassword = password;
-        await persistVault();
+        await saveState();
         bootstrap.Modal.getInstance(document.getElementById('forceChangePasswordModal')).hide();
 
         if (state.role === 'admin') elements.adminBtn.classList.remove('hidden');
@@ -1259,9 +1357,9 @@ function enableDragAndDrop() {
 
       // Recalcula ordem baseado na posição visual atual dos cards
       const cards = [...l.querySelectorAll('.task-card')];
-      const userTasks = state.tasks.filter(tk => tk.owner === state.currentUser && tk.column === l.dataset.column);
+      const boardTasks = state.tasks.filter(tk => tk.column === l.dataset.column);
       cards.forEach((card, idx) => {
-        const tk = userTasks.find(tk => tk.id === card.dataset.taskId);
+        const tk = boardTasks.find(tk => tk.id === card.dataset.taskId);
         if (tk) tk.order = idx;
       });
 
@@ -1351,8 +1449,8 @@ async function createImpedimentFromTask(taskId, reason) {
   const task = state.tasks.find(task => task.id === taskId);
   if (!task) return;
 
-  if (!state.impediments[state.currentUser]) state.impediments[state.currentUser] = [];
-  state.impediments[state.currentUser].push({
+  if (!Array.isArray(state.impediments)) state.impediments = [];
+  state.impediments.push({
     id: generateUUID(),
     text: reason,
     task: { ...task }
@@ -1364,7 +1462,7 @@ async function createImpedimentFromTask(taskId, reason) {
 }
 
 async function restoreImpedimentToTask(impedimentId, column) {
-  const impediments = state.impediments[state.currentUser] || [];
+  const impediments = state.impediments || [];
   const impediment = impediments.find(item => item.id === impedimentId);
   if (!impediment) return;
 
@@ -1383,12 +1481,12 @@ async function restoreImpedimentToTask(impedimentId, column) {
 
   restoredTask.column = column;
   restoredTask.owner = state.currentUser;
-  restoredTask.order = state.tasks.filter(task => task.owner === state.currentUser && task.column === column).length;
+  restoredTask.order = state.tasks.filter(task => task.column === column).length;
   if (column === 'done') restoredTask.completedAt = new Date().toISOString();
   else delete restoredTask.completedAt;
 
   state.tasks.push(restoredTask);
-  state.impediments[state.currentUser] = impediments.filter(item => item.id !== impedimentId);
+  state.impediments = impediments.filter(item => item.id !== impedimentId);
   await saveState();
   renderBoard();
 }
@@ -1424,7 +1522,7 @@ window.showSelection = async (el, id, f) => {
   if (!task) return;
   if (f === 'assignee') await refreshSystemUsers();
   const columnTasks = state.tasks
-    .filter(item => item.owner === state.currentUser && item.column === task.column)
+    .filter(item => item.column === task.column)
     .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
   const opts = f === 'assignee'
     ? [{ label: 'Não atribuído', value: 'Não atribuído' }, ...systemUsers.map(u => ({ label: u.username, value: u.username }))]
@@ -1464,7 +1562,7 @@ window.showSelection = async (el, id, f) => {
 
 function reorderTask(task, targetIndex) {
   const columnTasks = state.tasks
-    .filter(item => item.owner === state.currentUser && item.column === task.column)
+    .filter(item => item.column === task.column)
     .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
   const currentIndex = columnTasks.findIndex(item => item.id === task.id);
   if (currentIndex < 0) return;
@@ -1537,16 +1635,6 @@ function importData(event) {
         const user = typeof value === 'string' ? value.trim() : '';
         return (!user || user === sourceUser) ? currentUser : user;
       };
-      const remapUserObject = (obj) => {
-        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
-        const next = { ...obj };
-        if (Object.prototype.hasOwnProperty.call(next, sourceUser)) {
-          next[currentUser] = next[sourceUser];
-          if (sourceUser !== currentUser) delete next[sourceUser];
-        }
-        return next;
-      };
-
       // Sanitize Tasks
       const normalizeColumn = (value) => {
         const col = String(value || 'stories').toLowerCase().trim();
@@ -1573,45 +1661,34 @@ function importData(event) {
         order: Number.isFinite(Number(t.order)) ? Number(t.order) : undefined
       }));
 
-      // Sanitize DoD
-      const sanitizedDod = {};
-      if (imp.dod && typeof imp.dod === 'object') {
-        for (const [user, list] of Object.entries(imp.dod)) {
-          if (Array.isArray(list)) {
-            sanitizedDod[mapImportedUser(user)] = list.map(item => ({
-              id: (typeof item.id === 'string' && /^[a-zA-Z0-9-]+$/.test(item.id)) ? item.id : generateUUID(),
-              text: typeof item.text === 'string' ? item.text : ''
-            }));
-          }
-        }
-      }
+      const sanitizeSimpleList = (list) => Array.isArray(list)
+        ? list.map(item => ({
+            id: (typeof item.id === 'string' && /^[a-zA-Z0-9-]+$/.test(item.id)) ? item.id : generateUUID(),
+            text: typeof item.text === 'string' ? item.text : ''
+          }))
+        : [];
 
-      // Sanitize Impediments
-      const sanitizedImpediments = {};
-      if (imp.impediments && typeof imp.impediments === 'object') {
-        for (const [user, list] of Object.entries(imp.impediments)) {
-          if (Array.isArray(list)) {
-            sanitizedImpediments[mapImportedUser(user)] = list.map(item => ({
-              id: (typeof item.id === 'string' && /^[a-zA-Z0-9-]+$/.test(item.id)) ? item.id : generateUUID(),
-              text: typeof item.text === 'string' ? item.text : ''
-            }));
-          }
-        }
-      }
+      const pickImportedList = (value) => {
+        if (Array.isArray(value)) return value;
+        if (value && typeof value === 'object') return value[sourceUser] || value[currentUser] || [];
+        return [];
+      };
 
       // Build sanitized state
       state = {
         ...defaultState,
         currentUser,
         role: currentRole,
+        currentBoardId: state.currentBoardId,
+        currentBoardName: state.currentBoardName,
         tasks: sanitizedTasks,
-        dod: sanitizedDod,
-        impediments: sanitizedImpediments,
-        sprintGoal: remapUserObject(imp.sprintGoal),
-        productVision: remapUserObject(imp.productVision),
-        sprintIncrement: remapUserObject(imp.sprintIncrement),
-        sprintPeriod: remapUserObject(imp.sprintPeriod),
-        notes: remapUserObject(imp.notes)
+        dod: sanitizeSimpleList(pickImportedList(imp.dod)),
+        impediments: sanitizeSimpleList(pickImportedList(imp.impediments)),
+        sprintGoal: valueForBoard(imp, 'sprintGoal', sourceUser, ''),
+        productVision: valueForBoard(imp, 'productVision', sourceUser, ''),
+        sprintIncrement: valueForBoard(imp, 'sprintIncrement', sourceUser, ''),
+        sprintPeriod: valueForBoard(imp, 'sprintPeriod', sourceUser, ''),
+        notes: valueForBoard(imp, 'notes', sourceUser, '')
       };
 
       await saveState();

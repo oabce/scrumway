@@ -103,9 +103,18 @@
 
   <!-- Board Section -->
   <section id="boardSection" class="view-section hidden">
-    <div class="mb-4">
-      <h2 class="mb-1">Quadro SCRUM</h2>
-      <p class="text-muted mb-0">Olá, <span id="boardUsername" class="fw-bold text-primary"></span>. Organize suas sprints com eficiência.</p>
+    <div class="board-toolbar mb-4">
+      <div>
+        <h2 class="mb-1">Quadro SCRUM</h2>
+        <p class="text-muted mb-0">Olá, <span id="boardUsername" class="fw-bold text-primary"></span>. Projeto: <span id="activeBoardName" class="fw-bold"></span></p>
+      </div>
+      <div class="board-actions">
+        <select id="boardSelect" class="form-select form-select-sm" aria-label="Selecionar quadro"></select>
+        <div class="input-group input-group-sm board-create-group">
+          <input type="text" id="newBoardName" class="form-control" placeholder="Novo projeto" aria-label="Novo projeto">
+          <button class="btn btn-primary" type="button" id="createBoardBtn">Criar</button>
+        </div>
+      </div>
     </div>
 
     <!-- Control Area (Moved from sidebar) -->

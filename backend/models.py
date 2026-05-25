@@ -1,5 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy.dialects.mysql import LONGTEXT
 
 db = SQLAlchemy()
 
@@ -24,4 +25,25 @@ class User(db.Model):
             "email": self.email,
             "role": self.role,
             "force_password_change": self.force_password_change
+        }
+
+
+class Board(db.Model):
+    __tablename__ = 'board'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), unique=True, nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'), nullable=True)
+    board_data = db.Column(db.Text().with_variant(LONGTEXT, 'mysql'), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=db.func.now())
+    updated_at = db.Column(db.DateTime, nullable=False, default=db.func.now(), onupdate=db.func.now())
+
+    creator = db.relationship('User', backref=db.backref('created_boards', lazy=True))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "created_by_id": self.created_by_id,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }

@@ -1,9 +1,10 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from models import db, User
+from models import db, User, Board
 import os
 import jwt
 import datetime
+import json
 from functools import wraps
 from dotenv import load_dotenv
 import time
@@ -84,6 +85,86 @@ def get_users(current_user):
 def list_users(current_user):
     users = User.query.all()
     return jsonify([{'username': u.username, 'role': u.role} for u in users])
+
+def empty_board_state():
+    return {
+        'notes': '',
+        'productVision': '',
+        'sprintIncrement': '',
+        'teamMembers': {},
+        'tasks': [],
+        'sprintGoal': '',
+        'sprintPeriod': '',
+        'impediments': [],
+        'dod': []
+    }
+
+@app.route('/api/boards', methods=['GET'])
+@token_required
+def list_boards(current_user):
+    boards = Board.query.order_by(Board.updated_at.desc()).all()
+    if not boards:
+        board = Board(
+            name='Projeto Principal',
+            created_by_id=current_user.id,
+            board_data=json.dumps(empty_board_state(), ensure_ascii=False)
+        )
+        db.session.add(board)
+        db.session.commit()
+        boards = [board]
+    return jsonify([board.to_dict() for board in boards])
+
+@app.route('/api/boards', methods=['POST'])
+@token_required
+def create_board(current_user):
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if len(name) < 3:
+        return jsonify({'error': 'Nome do quadro deve ter no mínimo 3 caracteres'}), 400
+    if Board.query.filter_by(name=name).first():
+        return jsonify({'error': 'Já existe um quadro com este nome'}), 400
+
+    board = Board(
+        name=name,
+        created_by_id=current_user.id,
+        board_data=json.dumps(empty_board_state(), ensure_ascii=False)
+    )
+    db.session.add(board)
+    db.session.commit()
+    return jsonify(board.to_dict()), 201
+
+@app.route('/api/boards/<int:board_id>/state', methods=['GET'])
+@token_required
+def get_board_state(current_user, board_id):
+    board = Board.query.get(board_id)
+    if not board:
+        return jsonify({'error': 'Quadro não encontrado'}), 404
+
+    try:
+        board_data = json.loads(board.board_data)
+    except json.JSONDecodeError:
+        board_data = empty_board_state()
+
+    return jsonify({
+        'board': board.to_dict(),
+        'board_data': board_data
+    })
+
+@app.route('/api/boards/<int:board_id>/state', methods=['PUT'])
+@token_required
+def save_board_state(current_user, board_id):
+    board = Board.query.get(board_id)
+    if not board:
+        return jsonify({'error': 'Quadro não encontrado'}), 404
+
+    data = request.get_json() or {}
+    board_data = data.get('board_data')
+    if not isinstance(board_data, dict):
+        return jsonify({'error': 'Dados do quadro ausentes ou inválidos'}), 400
+
+    board.board_data = json.dumps(board_data, ensure_ascii=False)
+    db.session.commit()
+    return jsonify({'message': 'Dados salvos com sucesso', 'board': board.to_dict()})
 
 @app.route('/api/admin/users/<int:user_id>/role', methods=['PATCH'])
 @token_required
